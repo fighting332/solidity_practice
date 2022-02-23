@@ -1,0 +1,201 @@
+
+
+
+
+（vote.sol）
+-----------------------
+
+
+// SPDX-License-Identifier: GPL-3.0
+pragma solidity ^0.8.11;
+
+contract Ballot {
+    // voter.
+    struct Voter {
+        uint weight; 
+        bool voted;  
+        address delegate; 
+        uint vote;  
+    }
+
+    //a single proposal.
+    struct Proposal {
+        bytes32 name;   // short name (up to 32 bytes)
+        uint voteCount; 
+    }
+
+    address public chairperson;
+
+    // stores a `Voter` struct for each possible address.
+    mapping(address => Voter) public voters;
+
+    // A dynamically-sized array of `Proposal` structs.
+    Proposal[] public proposals;
+
+    /// Initialize variables of contract
+    constructor(bytes32[] memory proposalNames) {
+        chairperson = msg.sender;
+        voters[chairperson].weight = 1;
+        for (uint i = 0; i < proposalNames.length; i++) {
+            proposals.push(Proposal({
+                name: proposalNames[i],
+                voteCount: 0
+            }));
+        }
+    }
+
+    //  give right to voter
+    function giveRightToVote(address voter) external 
+            returns (uint weight_voter)
+    {
+        require(
+            msg.sender == chairperson,
+            "Only chairperson can give right to vote."
+        );
+        require(
+            !voters[voter].voted,
+            "The voter already voted."
+        );
+        require(voters[voter].weight == 0);
+        voters[voter].weight = 1;
+        weight_voter = voters[voter].weight;
+    }
+
+    /// Delegate vote 
+    function delegate(address to) external {
+        Voter storage sender = voters[msg.sender];
+        require(!sender.voted, "You already voted.");
+        require(to != msg.sender, "Self-delegation is disallowed.");
+        while (voters[to].delegate != address(0)) {
+            to = voters[to].delegate;
+            require(to != msg.sender, "Found loop in delegation.");
+        }
+        Voter storage delegate_ = voters[to];
+
+        require(delegate_.weight >= 1);
+        sender.voted = true;
+        sender.delegate = to;
+        if (delegate_.voted) {
+            proposals[delegate_.vote].voteCount += sender.weight;
+        } else {
+            delegate_.weight += sender.weight;
+        }
+    }
+
+    // vote 
+    function vote(uint proposal) external
+        returns (uint proposal_votecount)
+    {
+        Voter storage sender = voters[msg.sender];
+        require(sender.weight != 0, "Has no right to vote");
+        require(!sender.voted, "Already voted.");
+        sender.voted = true;
+        sender.vote = proposal;
+        proposals[proposal].voteCount += sender.weight;
+        proposal_votecount = proposals[proposal].voteCount;
+    }
+
+    /// winning proposal position 
+    function winningProposal() public view
+            returns (uint winningProposal_)
+    {
+        uint winningVoteCount = 0;
+        for (uint p = 0; p < proposals.length; p++) {
+            if (proposals[p].voteCount > winningVoteCount) {
+                winningVoteCount = proposals[p].voteCount;
+                winningProposal_ = p;
+            }
+        }
+    }
+
+    // returns the name of the winner and account
+    function winnerName() external view
+            returns (bytes32 winnerName_, uint voteCount_, uint winning_proposal_position)
+    {
+        winning_proposal_position = winningProposal();
+        winnerName_ = proposals[winningProposal()].name;
+        voteCount_ = proposals[winningProposal()].voteCount;
+    }
+}
+
+
+               
+      
+-------------------------------------
+
+vote.js      
+---------
+    
+// const fs, path
+const fs = require("fs");
+const path = require("path");
+
+// obtain bin data
+const compilePath_bin = path.resolve(__dirname,"outputDirectory", "Ballot.bin");
+const solidity_bin = fs.readFileSync(compilePath_bin,"utf-8");
+
+// obtain abi data
+const compilePath_abi = path.resolve(__dirname,"outputDirectory", "Ballot.abi");
+const solidity_abi = fs.readFileSync(compilePath_abi,"utf-8");
+
+// storage bin and abi data
+storageJson = {
+  'abi': {},
+  'bytecode': ''
+};
+
+storageJson.abi = solidity_abi;
+storageJson.bytecode = solidity_bin;
+console.log(storageJson);
+
+// deploy contract
+const Web3 = require("web3");
+const ganache = require("ganache-cli");
+const web3 = new Web3(ganache.provider());
+
+// Proposal items
+var strObj = ["0x6c00000000000000000000000000000000000000000000000000000000000000",
+              "0x6c00000000000000000000000000000000000000000000000000000000000001"] ;
+
+async function contract_deploy() {
+    let accounts = await web3.eth.getAccounts();
+    console.log("sender address:",accounts[0]);
+    console.log("voter_2:", accounts[1]);
+    console.log("voter_3:", accounts[2]);
+    console.log("voter_4:", accounts[3]);
+    let result = await new web3.eth.Contract(JSON.parse(storageJson.abi))
+        .deploy({data:storageJson.bytecode, arguments:[strObj]})
+        .send({from:accounts[0], gas:'5700000'})
+        .catch(err=>{
+            console.error(err);
+        });
+
+    // give right to voter 2, 3, 4
+    let give_right_to_voter_2 = await result.methods.giveRightToVote(accounts[1]).call();
+    let give_right_to_voter_3 = await result.methods.giveRightToVote(accounts[2]).call();
+    let give_right_to_voter_4 = await result.methods.giveRightToVote(accounts[3]).call();
+    console.log("give_right_to_voter_2:", give_right_to_voter_2);
+    console.log("give_right_to_voter_3:", give_right_to_voter_3);
+    console.log("give_right_to_voter_4:", give_right_to_voter_4);
+
+    // vote
+    let vote_call = await result.methods.vote(1).call();
+    console.log("vote:", vote_call);
+	
+    // winning proposal position
+    let winning_proposal_position  = await result.methods.winningProposal().call();
+    console.log("winning_proposal_position:", winning_proposal_position);
+    
+    // winning proposal: name, account and position
+    let winning_proposal = await result.methods.winnerName().call();
+    console.log("winning_proposal:", winning_proposal);
+
+}
+
+contract_deploy();
+
+          
+             
+
+    
+
