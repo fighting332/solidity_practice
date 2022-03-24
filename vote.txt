@@ -1,0 +1,239 @@
+
+# Install solc, nvm, npm, node, web3, ganache-cli
+$ sudo add-apt-repository ppa:ethereum/ethereum
+$ sudo apt-get update
+$ sudo apt-get install solc
+$ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash
+$ sudo reboot          
+$ nvm install v16.13.1
+$ nvm alias default 16.13.1
+$ npm install web3
+$ npm install ganache-cli
+$ nvm --version
+$ npm --version
+$ node --version
+$ solc --version
+$ npm view web3 version
+$ npm view ganache-cli version
+$ sudo nano vote.sol
+$ solc -o outputDirectory --abi --bin vote.sol
+$ sudo nano vote.js
+$ node vote.js
+
+
+
+--------------------
+vote.sol
+-------------------
+
+      
+// SPDX-License-Identifier: GPL-3.0
+pragma solidity ^0.8.11;
+    
+contract Ballot {
+    // a single voter.
+    struct Voter {
+        uint weight; // weight is accumulated by delegation
+        bool voted;  // if true, that person already voted
+        address delegate; // person delegated to
+        uint vote;   // index of the voted proposal
+    }
+
+    // a single proposal.
+    struct Proposal {
+        bytes32 name;   // short name (up to 32 bytes)
+        uint voteCount; // number of accumulated votes
+    }
+
+    address public chairperson;
+
+    // stores a `Voter` struct for each possible address.
+    mapping(address => Voter) public voters;
+
+    // A dynamically-sized array of `Proposal` structs.
+    Proposal[] public proposals;
+
+    /// Create a new ballot to choose one of `proposalNames`.
+    constructor(bytes32[] memory proposalNames) {
+        chairperson = msg.sender;
+        voters[chairperson].weight = 1;
+        for (uint i = 0; i < proposalNames.length; i++) {
+            proposals.push(Proposal({
+                name: proposalNames[i],
+                voteCount: 0
+            }));
+        }
+    }
+
+    // Give `voter` the right to vote on this ballot.
+    function giveRightToVote(address voter) external {
+        require(
+            msg.sender == chairperson,
+            "Only chairperson can give right to vote."
+        );
+        require(
+            !voters[voter].voted,
+            "The voter already voted."
+        );
+        require(voters[voter].weight == 0);
+        voters[voter].weight = 1;
+    }
+
+    /// Delegate vote to the voter `to`.
+    function delegate(address to) external {
+        Voter storage sender = voters[msg.sender];
+        require(!sender.voted, "You already voted.");
+        require(to != msg.sender, "Self-delegation is disallowed.");
+
+        while (voters[to].delegate != address(0)) {
+            to = voters[to].delegate;
+            require(to != msg.sender, "Found loop in delegation.");
+        }
+
+        Voter storage delegate_ = voters[to];
+
+        require(delegate_.weight >= 1);
+        sender.voted = true;
+        sender.delegate = to;
+        if (delegate_.voted) {
+            proposals[delegate_.vote].voteCount += sender.weight;
+        } else {
+            delegate_.weight += sender.weight;
+        }
+    }
+
+    function vote(uint proposal) external {
+        Voter storage sender = voters[msg.sender];
+        require(sender.weight != 0, "Has no right to vote");
+        require(!sender.voted, "Already voted.");
+        sender.voted = true;
+        sender.vote = proposal;
+
+        proposals[proposal].voteCount += sender.weight;
+    }
+
+    /// The winning proposal
+    function winningProposal() public view
+            returns (uint winningProposal_)
+    {
+        uint winningVoteCount = 0;
+        for (uint p = 0; p < proposals.length; p++) {
+            if (proposals[p].voteCount > winningVoteCount) {
+                winningVoteCount = proposals[p].voteCount;
+                winningProposal_ = p;
+            }
+        }
+    }
+
+    // The name of the winner
+    function winnerName() external view
+            returns (bytes32 winnerName_)
+    {
+        winnerName_ = proposals[winningProposal()].name;
+    }
+}
+
+
+--------------------
+vote.js
+-------------------                         
+// const fs, path
+const fs = require("fs");
+const path = require("path");
+
+// obtain bin data
+const compilePath_bin = path.resolve(__dirname,"outputDirectory", "Ballot.bin");
+const solidity_bin = fs.readFileSync(compilePath_bin,"utf-8");
+
+// obtain abi data
+const compilePath_abi = path.resolve(__dirname,"outputDirectory", "Ballot.abi");
+const solidity_abi = fs.readFileSync(compilePath_abi,"utf-8");
+
+// store bin and abi data      
+storageJson = {
+  'abi': {},
+  'bytecode': ''
+};
+
+storageJson.abi = solidity_abi;
+storageJson.bytecode = solidity_bin;
+console.log(storageJson);
+
+// deploy contract
+const Web3 = require("web3");
+const ganache = require("ganache-cli");
+const web3 = new Web3(ganache.provider()); 
+       
+// Proposal items
+var strObj = ["0x6c00000000000000000000000000000000000000000000000000000000000000",
+              "0x6c00000000000000000000000000000000000000000000000000000000000001"] ;
+
+async function contract_deploy() {
+    let accounts = await web3.eth.getAccounts();
+    console.log("sender address:",accounts[0]);
+    console.log("accounts[1]:", accounts[1]);
+    console.log("accounts[2]:", accounts[2]);
+    console.log("accounts[3]:", accounts[3]);
+    let result = await new web3.eth.Contract(JSON.parse(storageJson.abi))
+        .deploy({data:storageJson.bytecode, arguments:[strObj]})
+        .send({from:accounts[0], gas:'5700000'})
+        .catch(err=>{
+            console.error(err);
+        });
+
+    // chairperson
+    let chair = await result.methods.chairperson().call();
+    console.log(" chair: ", chair);
+
+    // the status of proposal items before vote 
+    let prop_0_status_before_vote = await result.methods.proposals(0).call();
+    console.log("prop_0_status_before_vote:", prop_0_status_before_vote);
+    let prop_1_status_before_vote = await result.methods.proposals(1).call();
+    console.log("prop_1_status_before_vote:", prop_1_status_before_vote);
+            
+    // give right to accounts 1,2,3 
+    // caller must be deployer, accounts[0]
+    let give_right_to_accounts_1_send = await result.methods.giveRightToVote(accounts[1]).send({from:accounts[0]});
+    let give_right_to_accounts_2_send = await result.methods.giveRightToVote(accounts[2]).send({from:accounts[0]});
+    let give_right_to_accounts_3_send = await result.methods.giveRightToVote(accounts[3]).send({from:accounts[0]});
+
+    console.log("give_right_to_accounts_1_send:", give_right_to_accounts_1_send);
+    // status of accounts[1] after obtaining right of vote
+    let accounts_1_stauts_after_giveRightToVote = await result.methods.voters(accounts[1]).call();
+    console.log("accounts_1_stauts_after_giveRightToVote:", accounts_1_stauts_after_giveRightToVote);
+            
+    // delegate vote to voter 'to'
+	// accounts[1] delegate vote to chairperson, and then chairperson delegate to accounts[2]
+    let delegate_to_voter_chairperson_from_accounts_1 = await result.methods.delegate(accounts[0]).send({from:accounts[1]});
+    let delegate_to_voter_accounts_2_from_chairperson = await result.methods.delegate(accounts[2]).send({from:accounts[0]});
+	console.log("delegate_to_voter_chairperson_from_accounts_1:", delegate_to_voter_chairperson_from_accounts_1);
+    console.log("delegate_to_voter_accounts_2_from_chairperson:", delegate_to_voter_accounts_2_from_chairperson);
+	
+    // status of accounts[2] after delegations 
+    let accounts_2_stauts_after_delegate = await result.methods.voters(accounts[2]).call();
+	console.log("accounts_2_stauts_after_delegate:", accounts_2_stauts_after_delegate);
+	
+    // vote
+    let vote_call_0 = await result.methods.vote(0).send({from:accounts[3]});
+    let vote_call_1 = await result.methods.vote(1).send({from:accounts[2]});
+    console.log("vote_call_0:", vote_call_0);
+    console.log("vote_call_1:", vote_call_1);
+   
+    // the status of proposal items after vote
+    let prop_0_status_after_vote = await result.methods.proposals(0).call();
+    console.log("prop_0_status_after_vote: ", prop_0_status_after_vote); 
+    let prop_1_status_after_vote = await result.methods.proposals(1).call();
+    console.log("prop_1_status_after_vote:", prop_1_status_after_vote); 
+   
+    // winning proposal position
+    let winning_proposal_position  = await result.methods.winningProposal().call();
+    console.log("winning_proposal_position:", winning_proposal_position);
+    
+    // winning proposal: name
+    let winning_proposal = await result.methods.winnerName().call();
+    console.log("winning_proposal:", winning_proposal);
+}
+
+contract_deploy();
+
+                                                                            

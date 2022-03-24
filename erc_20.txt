@@ -1,0 +1,982 @@
+
+# install nvm, npm, node, web3, ganache-cli
+$ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash
+$ sudo reboot          
+$ nvm install v16.13.1
+$ nvm alias default 16.13.1
+$ npm install web3
+$ npm install ganache-cli
+$ nvm --version
+$ npm --version
+$ node --version
+$ solc --version
+$ npm view web3 version
+$ npm view ganache-cli version
+
+# install compiler 0.5.17         
+$ mkdir ~/tools
+$ cd ~/tools
+$ git clone https://github.com/ethereum/solidity.git
+$ cd solidity
+$ git checkout tags/v0.5.17
+$ cd ~/tools/solidity
+$ git submodule update
+$ cd ~/tools/solidity/scripts
+$ ./install_deps.sh
+$ cd ~/tools/solidity/scripts
+$ ./build.sh    
+       
+
+# Based on the given erc-20 contract
+$ sudo nano erc_20.sol
+$ solc -o outputDirectory --abi --bin erc_20.sol
+# Execute erc_20_Variable.js
+$ sudo nano erc_20_Variable.js
+$ node erc_20_Variable.js
+# Exeute erc_20_Modifiers.js
+$ sudo nano erc_20_Modifiers.js
+$ node erc_20_Modifiers.js
+# Execute erc_20_Admin.js
+$ sudo nano erc_20_Admin.js
+$ node erc_20_Admin.js
+# Execute erc_20_IMC.js
+$ sudo nano erc_20_IMC.js
+$ node erc_20_IMC.js
+
+
+
+---------------------------
+## erc_20.sol
+--------------------------
+pragma solidity ^0.5.17;
+
+library SafeMath
+{
+	function add(uint256 a, uint256 b) internal pure returns (uint256 c) 
+	{
+		c = a + b;
+		require(c >= a, "SafeMath: addition overflow");
+	}
+	
+	function sub(uint256 a, uint256 b) internal pure returns (uint256 c) 
+	{
+		require(b <= a, "SafeMath: subtraction overflow");
+		c = a - b;
+	}
+}
+contract Variable
+{
+	string public name;
+	string public symbol;
+	uint256 public decimals;
+	uint256 public totalSupply;
+	address public owner;
+
+	uint256 internal _decimals;
+	bool internal transferLock;
+	
+	mapping (address => bool) public allowedAddress;
+	mapping (address => bool) public blockedAddress;
+
+	mapping (address => uint256) public balanceOf;
+	
+	mapping (address => mapping (address => uint256)) internal allowed;
+
+	constructor() public
+	{
+		name = "i Money Crypto";
+		symbol = "IMC";
+		decimals = 18;
+		_decimals = 10 ** uint256(decimals);
+		totalSupply = _decimals * 300000000;
+		transferLock = true;
+		owner =	msg.sender;
+		balanceOf[owner] = totalSupply;
+		allowedAddress[owner] = true;
+	}
+}
+contract Modifiers is Variable
+{
+	modifier isOwner
+	{
+		assert(owner == msg.sender);
+		_;
+	}
+}
+contract Event
+{
+	event Transfer(address indexed from, address indexed to, uint256 value);
+	event TokenBurn(address indexed from, uint256 value);
+	event Approval(address indexed owner, address indexed spender, uint256 value);
+}
+contract Admin is Variable, Modifiers, Event
+{
+	using SafeMath for uint256;
+	
+	function tokenBurn(uint256 _value) public isOwner returns(bool success)
+	{
+		require(balanceOf[msg.sender] >= _value, "Invalid balance");
+		balanceOf[msg.sender] = balanceOf[msg.sender].sub(_value);
+		totalSupply = totalSupply.sub(_value);
+		emit TokenBurn(msg.sender, _value);
+		return true;
+	}
+	function addAllowedAddress(address _address) public isOwner
+	{
+		allowedAddress[_address] = true;
+	}
+	function deleteAllowedAddress(address _address) public isOwner
+	{
+		require(_address != owner,"only allow user address");
+		allowedAddress[_address] = false;
+	}
+	function addBlockedAddress(address _address) public isOwner
+	{
+		require(_address != owner,"only allow user address");
+		blockedAddress[_address] = true;
+	}
+	function deleteBlockedAddress(address _address) public isOwner
+	{
+		blockedAddress[_address] = false;
+	}
+	function setTransferLock(bool _transferLock) public isOwner returns(bool success)
+	{
+		transferLock = _transferLock;
+		return true;
+	}
+}
+contract IMC is Variable, Event, Admin
+{
+	function() external payable 
+	{
+		revert();
+	}
+	
+	function allowance(address tokenOwner, address spender) public view returns (uint256 remaining) 
+	{
+		return allowed[tokenOwner][spender];
+	}
+	
+	function increaseApproval(address _spender, uint256 _addedValue) public returns (bool) 
+	{
+		allowed[msg.sender][_spender] = allowed[msg.sender][_spender].add(_addedValue);
+		emit Approval(msg.sender, _spender, allowed[msg.sender][_spender]);
+		return true;
+	}
+	
+	function decreaseApproval(address _spender, uint256 _subtractedValue) public returns (bool)
+	{
+		uint256 oldValue = allowed[msg.sender][_spender];
+		if (_subtractedValue > oldValue) 
+		{
+			allowed[msg.sender][_spender] = 0;
+		} 
+		else
+		{
+			allowed[msg.sender][_spender] = oldValue.sub(_subtractedValue);
+		}
+		emit Approval(msg.sender, _spender, allowed[msg.sender][_spender]);
+		return true;
+	}
+	
+	function approve(address _spender, uint256 _value) public returns (bool)
+	{
+		allowed[msg.sender][_spender] = _value;
+		emit Approval(msg.sender, _spender, _value);
+		return true;
+	}
+	
+	function get_transferLock() public view returns(bool)
+    {
+        return transferLock;
+    }
+    
+	function transferFrom(address _from, address _to, uint256 _value) public returns (bool) 
+	{
+		require(allowedAddress[_from] || transferLock == false, "Transfer lock : true");
+		require(!blockedAddress[_from] && !blockedAddress[_to] && !blockedAddress[msg.sender], "Blocked address");
+		require(balanceOf[_from] >= _value && (balanceOf[_to].add(_value)) >= balanceOf[_to], "Invalid balance");
+		require(_value <= allowed[_from][msg.sender], "Invalid balance : allowed");
+
+		balanceOf[_from] = balanceOf[_from].sub(_value);
+		balanceOf[_to] = balanceOf[_to].add(_value);
+		allowed[_from][msg.sender] = allowed[_from][msg.sender].sub(_value);
+		emit Transfer(_from, _to, _value);
+
+		return true;
+	}
+	
+	function transfer(address _to, uint256 _value) public returns (bool)	
+	{
+		require(allowedAddress[msg.sender] || transferLock == false, "Transfer lock : true");
+		require(!blockedAddress[msg.sender] && !blockedAddress[_to], "Blocked address");
+		require(balanceOf[msg.sender] >= _value && (balanceOf[_to].add(_value)) >= balanceOf[_to], "Invalid balance");
+
+		balanceOf[msg.sender] = balanceOf[msg.sender].sub(_value);
+		balanceOf[_to] = balanceOf[_to].add(_value);
+		emit Transfer(msg.sender, _to, _value);
+				
+		return true;
+	}
+}
+
+
+-------------------
+## erc_20_Variable.js
+------------------
+
+// const fs, path
+const fs = require("fs");
+const path = require("path");
+
+// obtain bin data
+const compilePath_bin = path.resolve(__dirname,"outputDirectory", "Variable.bin");
+const solidity_bin = fs.readFileSync(compilePath_bin,"utf-8");
+
+// obtain abi data
+const compilePath_abi = path.resolve(__dirname,"outputDirectory", "Variable.abi");
+const solidity_abi = fs.readFileSync(compilePath_abi,"utf-8");
+
+// storage bin and abi data
+storageJson = {
+  'abi': {},
+  'bytecode': ''
+};
+
+storageJson.abi = solidity_abi;
+storageJson.bytecode = solidity_bin;
+console.log(storageJson);
+
+// deploy contract
+const Web3 = require("web3");
+const ganache = require("ganache-cli");
+const web3 = new Web3(ganache.provider());
+
+async function contract_deploy() {
+    let accounts = await web3.eth.getAccounts();
+    let result = await new web3.eth.Contract(JSON.parse(storageJson.abi))
+        .deploy({data:storageJson.bytecode})
+        .send({from:accounts[0], gas:'5700000'})
+        .catch(err=>{
+            console.error(err);
+        });
+
+    console.log("sender_accounts[0]_address:",accounts[0]);
+    console.log("erc_20_Variable_address:", result._address);
+	
+    // Variable_allowedAddress
+    let erc_20_Variable_allowedAddress_accounts_0 = await result.methods.allowedAddress(accounts[0]).call();
+    console.log("erc_20_Variable_allowedAddress_accounts_0:", erc_20_Variable_allowedAddress_accounts_0);
+    let erc_20_Variable_allowedAddress_accounts_1 = await result.methods.allowedAddress(accounts[1]).call();
+    console.log("erc_20_Variable_allowedAddress_accounts_1:", erc_20_Variable_allowedAddress_accounts_1)
+
+    // Variable_blockedAddress
+    let erc_20_Variable_blockedAddress_accounts_0 = await result.methods.blockedAddress(accounts[0]).call();
+    console.log("erc_20_Variable_blockedAddress_accounts_0:", erc_20_Variable_blockedAddress_accounts_0);
+    let erc_20_Variable_blockedAddress_accounts_1 = await result.methods.blockedAddress(accounts[1]).call();
+    console.log("erc_20_Variable_blockedAddress_accounts_1:", erc_20_Variable_blockedAddress_accounts_1);
+
+    // Variable_balanceOf
+    let erc_20_Variable_balanceOf_accounts_0 = await result.methods.balanceOf(accounts[0]).call();
+    console.log("erc_20_Variable_balanceOf_accounts_0:", erc_20_Variable_balanceOf_accounts_0);
+    let erc_20_Variable_balanceOf_accounts_1 = await result.methods.balanceOf(accounts[1]).call();
+    console.log("erc_20_Variable_balanceOf_accounts_1:", erc_20_Variable_balanceOf_accounts_1);
+	    
+    // Variable: name, symbol, decimals, totalSupply, owner
+    let erc_20_Variable_name_accounts_0 = await result.methods.name().call();
+    console.log("erc_20_Variable_name_accounts_0:", erc_20_Variable_name_accounts_0);
+    let erc_20_Variable_symbol_accounts_0 = await result.methods.symbol().call();
+    console.log("erc_20_Variable_symbol_accounts_0:", erc_20_Variable_symbol_accounts_0);
+    let erc_20_Variable_decimals_accounts_0 = await result.methods.decimals().call();
+    console.log("erc_20_Variable_decimals_accounts_0:", erc_20_Variable_decimals_accounts_0);
+    let erc_20_Variable_totalSupply_accounts_0 = await result.methods.totalSupply().call();
+    console.log("erc_20_Variable_totalSupply_accounts_0:", erc_20_Variable_totalSupply_accounts_0);
+    let erc_20_Variable_owner_accounts_0 = await result.methods.owner().call();
+    console.log("erc_20_Variable_owner_accounts_0:", erc_20_Variable_owner_accounts_0);
+   
+}   
+
+contract_deploy();
+
+
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^    
+
+-------------------
+## erc_20_Modifiers.js
+------------------
+
+// const fs, path
+const fs = require("fs");
+const path = require("path");
+
+// obtain bin data
+const compilePath_bin = path.resolve(__dirname,"outputDirectory", "Modifiers.bin");
+const solidity_bin = fs.readFileSync(compilePath_bin,"utf-8");
+
+// obtain abi data
+const compilePath_abi = path.resolve(__dirname,"outputDirectory", "Modifiers.abi");
+const solidity_abi = fs.readFileSync(compilePath_abi,"utf-8");
+
+// storage bin and abi data
+storageJson = {
+  'abi': {},
+  'bytecode': ''
+};
+
+storageJson.abi = solidity_abi;
+storageJson.bytecode = solidity_bin;
+console.log(storageJson);     
+
+// deploy contract
+const Web3 = require("web3");
+const ganache = require("ganache-cli");
+const web3 = new Web3(ganache.provider());
+
+async function contract_deploy() {
+    let accounts = await web3.eth.getAccounts();
+    let result = await new web3.eth.Contract(JSON.parse(storageJson.abi))
+        .deploy({data:storageJson.bytecode})
+        .send({from:accounts[0], gas:'5700000'})
+        .catch(err=>{
+            console.error(err);
+        });
+                 
+    console.log("sender_accounts[0]_address:",accounts[0]);
+    console.log("erc_20_Modifiers_address:", result._address);          
+	   
+    // Modifiers_allowedAddres
+    let erc_20_Modifiers_allowedAddress_accounts_0 = await result.methods.allowedAddress(accounts[0]).call();
+    console.log("erc_20_Modifiers_allowedAddress_accounts_0:", erc_20_Modifiers_allowedAddress_accounts_0);
+    let erc_20_Modifiers_allowedAddress_accounts_1 = await result.methods.allowedAddress(accounts[1]).call();
+    console.log("erc_20_Modifiers_allowedAddress_accounts_1:", erc_20_Modifiers_allowedAddress_accounts_1)
+
+    // Modifiers_blockedAddress
+    let erc_20_Modifiers_blockedAddress_accounts_0 = await result.methods.blockedAddress(accounts[0]).call();
+    console.log("erc_20_Modifiers_blockedAddress_accounts_0:", erc_20_Modifiers_blockedAddress_accounts_0);
+    let erc_20_Modifiers_blockedAddress_accounts_1 = await result.methods.blockedAddress(accounts[1]).call();
+    console.log("erc_20_Modifiers_blockedAddress_accounts_1:", erc_20_Modifiers_blockedAddress_accounts_1);
+
+    // Modifiers_balanceOf
+    let erc_20_Modifiers_balanceOf_accounts_0 = await result.methods.balanceOf(accounts[0]).call();
+    console.log("erc_20_Modifiers_balanceOf_accounts_0:", erc_20_Modifiers_balanceOf_accounts_0);
+    let erc_20_Modifiers_balanceOf_accounts_1 = await result.methods.balanceOf(accounts[1]).call();
+    console.log("erc_20_Modifiers_balanceOf_accounts_1:", erc_20_Modifiers_balanceOf_accounts_1);
+	    
+    // Modifiers: name, symbol, decimals, totalSupply, owner
+    let erc_20_Modifiers_name_accounts_0 = await result.methods.name().call();
+    console.log("erc_20_Modifiers_name_accounts_0:", erc_20_Modifiers_name_accounts_0);
+    let erc_20_Modifiers_symbol_accounts_0 = await result.methods.symbol().call();
+    console.log("erc_20_Modifiers_symbol_accounts_0:", erc_20_Modifiers_symbol_accounts_0);
+    let erc_20_Modifiers_decimals_accounts_0 = await result.methods.decimals().call();
+    console.log("erc_20_Modifiers_decimals_accounts_0:", erc_20_Modifiers_decimals_accounts_0);
+    let erc_20_Modifiers_totalSupply_accounts_0 = await result.methods.totalSupply().call();
+    console.log("erc_20_Modifiers_totalSupply_accounts_0:", erc_20_Modifiers_totalSupply_accounts_0);
+    let erc_20_Modifiers_owner_accounts_0 = await result.methods.owner().call();
+    console.log("erc_20_Modifiers_owner_accounts_0:", erc_20_Modifiers_owner_accounts_0);
+   
+}       
+  
+contract_deploy();
+
+
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+-------------------
+## erc_20_Admin.js
+------------------
+
+// const fs, path
+const fs = require("fs");
+const path = require("path");
+
+// obtain bin data
+const compilePath_bin = path.resolve(__dirname,"outputDirectory", "Admin.bin");
+const solidity_bin = fs.readFileSync(compilePath_bin,"utf-8");
+
+// obtain abi data
+const compilePath_abi = path.resolve(__dirname,"outputDirectory", "Admin.abi");
+const solidity_abi = fs.readFileSync(compilePath_abi,"utf-8");
+
+// storage bin and abi data
+storageJson = {
+  'abi': {},
+  'bytecode': ''
+};
+
+storageJson.abi = solidity_abi;
+storageJson.bytecode = solidity_bin;
+console.log(storageJson);     
+
+// deploy contract
+const Web3 = require("web3");
+const ganache = require("ganache-cli");
+const web3 = new Web3(ganache.provider());
+
+async function contract_deploy() {
+    let accounts = await web3.eth.getAccounts();
+    let result = await new web3.eth.Contract(JSON.parse(storageJson.abi))
+        .deploy({data:storageJson.bytecode})
+        .send({from:accounts[0], gas:'5700000'})
+        .catch(err=>{
+            console.error(err);
+        });                      
+
+    console.log("sender_accounts[0]_address:",accounts[0]);  
+    console.log("erc_20_Admin_address:", result._address);          
+	   
+    // Admin_tokenBurn_before: balanceOf
+    let erc_20_Admin_tokenBurn_before_balanceOf_accounts_0 = await result.methods.balanceOf(accounts[0]).call();
+    console.log("erc_20_Admin_tokenBurn_before_balanceOf_accounts_0:", erc_20_Admin_tokenBurn_before_balanceOf_accounts_0);
+    let erc_20_Admin_tokenBurn_before_totalSupply_accounts_0 = await result.methods.totalSupply().call();
+    console.log("erc_20_Admin_tokenBurn_before_totalSupply_accounts_0:", erc_20_Admin_tokenBurn_before_totalSupply_accounts_0 )
+
+    // Admin_tokenBurn
+    // caller must be accounts[0] because of Modifiers
+    let erc_20_Admin_tokenBurn_accounts_0 = await result.methods.tokenBurn(100).send({from:accounts[0]});
+    console.log("erc_20_Admin_tokenBurn_accounts_0:", erc_20_Admin_tokenBurn_accounts_0);
+
+    // Admin_tokenBurn_after: balanceOf, totalSupply
+    let erc_20_Admin_tokenBurn_after_balanceOf_accounts_0 = await result.methods.balanceOf(accounts[0]).call();
+    console.log("erc_20_Admin_tokenBurn_after_balanceOf_accounts_0:", erc_20_Admin_tokenBurn_after_balanceOf_accounts_0);
+    let erc_20_Admin_tokenBurn_after_totalSupply_accounts_0 = await result.methods.totalSupply().call();
+    console.log("erc_20_Admin_tokenBurn_after_totalSupply_accounts_0:", erc_20_Admin_tokenBurn_after_totalSupply_accounts_0 );
+
+    // Admin_addAllowedAddress
+    // caller must be accounts[0] because of Modifiers
+    let erc_20_Admin_addAllowedAddress_accounts_0 = await result.methods.addAllowedAddress(accounts[1]).call();
+    console.log("erc_20_Admin_addAllowedAddress_accounts_0:", erc_20_Admin_addAllowedAddress_accounts_0);
+    let erc_20_Admin_addAllowedAddress_accounts_0_send = await result.methods.addAllowedAddress(accounts[1]).send({from:accounts[0]});
+    console.log("erc_20_Admin_addAllowedAddress_accounts_0_send:", erc_20_Admin_addAllowedAddress_accounts_0_send)
+	      
+    // Admin_deleteAllowedAddress
+	// caller must be accounts[0] because of Modifiers
+    let erc_20_Admin_deleteAllowedAddress_accounts_0 = await result.methods.deleteAllowedAddress(accounts[1]).call();
+    console.log("erc_20_Admin_deleteAllowedAddress_accounts_0:", erc_20_Admin_deleteAllowedAddress_accounts_0);
+    let erc_20_Admin_deleteAllowedAddress_accounts_0_send = await result.methods.deleteAllowedAddress(accounts[1]).send({from:accounts[0]});
+    console.log("erc_20_Admin_deleteAllowedAddress_accounts_0_send:", erc_20_Admin_deleteAllowedAddress_accounts_0_send);
+
+    // Admin_addBlockedAddress           
+	// caller must be accounts[0] because of Modifiers
+    let erc_20_Admin_addBlockedAddress_accounts_0 = await result.methods.addBlockedAddress(accounts[1]).call();
+    console.log("erc_20_Admin_addBlockedAddress_accounts_0:", erc_20_Admin_addBlockedAddress_accounts_0);
+    let erc_20_Admin_addBlockedAddress_accounts_0_send = await result.methods.addBlockedAddress(accounts[1]).send({from:accounts[0]});
+    console.log("erc_20_Admin_addBlockedAddress_accounts_0_send:", erc_20_Admin_addBlockedAddress_accounts_0_send);
+	              
+    // Admin_deleteBlockedAddress
+	// caller must be accounts[0] because of Modifiers
+    let erc_20_Admin_deleteBlockedAddress_accounts_0 = await result.methods.deleteBlockedAddress(accounts[1]).call();
+    console.log("erc_20_Admin_deleteBlockedAddress_accounts_0:", erc_20_Admin_deleteBlockedAddress_accounts_0);
+    let erc_20_Admin_deleteBlockedAddress_accounts_0_send = await result.methods.deleteBlockedAddress(accounts[1]).send({from:accounts[0]});
+    console.log("erc_20_Admin_deleteBlockedAddress_accounts_0_send:", erc_20_Admin_deleteBlockedAddress_accounts_0_send);
+	
+    // Admin_setTransferLock
+	// caller must be accounts[0] because of Modifiers
+    let erc_20_Admin_setTransferLock_accounts_0_false = await result.methods.setTransferLock(false).call();
+    console.log("erc_20_Admin_setTransferLock_accounts_0_false:", erc_20_Admin_setTransferLock_accounts_0_false);
+    let erc_20_Admin_setTransferLock_accounts_0_false_send = await result.methods.setTransferLock(false).send({from:accounts[0]});
+    console.log("erc_20_Admin_setTransferLock_accounts_0_false_send:", erc_20_Admin_setTransferLock_accounts_0_false_send);
+
+}       
+                              
+contract_deploy();
+
+                                   
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+    
+--------------------
+## erc_20_IMC.js
+--------------------       
+     
+// const fs, path
+const fs = require("fs");
+const path = require("path");
+
+                                   
+// obtain bin data
+const compilePath_bin = path.resolve(__dirname,"outputDirectory", "IMC.bin");
+const solidity_bin = fs.readFileSync(compilePath_bin,"utf-8");
+
+// obtain abi data
+const compilePath_abi = path.resolve(__dirname,"outputDirectory", "IMC.abi");
+const solidity_abi = fs.readFileSync(compilePath_abi,"utf-8");
+
+// storage bin and abi data
+storageJson = {
+  'abi': {},
+  'bytecode': ''                                
+};
+
+storageJson.abi = solidity_abi;
+storageJson.bytecode = solidity_bin;
+console.log(storageJson);     
+
+// deploy contract
+const Web3 = require("web3");
+const ganache = require("ganache-cli");
+const web3 = new Web3(ganache.provider());
+
+async function contract_deploy() {
+    let accounts = await web3.eth.getAccounts();
+    let result = await new web3.eth.Contract(JSON.parse(storageJson.abi))
+        .deploy({data:storageJson.bytecode})
+        .send({from:accounts[0], gas:'5700000'})
+        .catch(err=>{
+            console.error(err);
+        });                      
+
+    console.log("sender_accounts[0]_address:",accounts[0]);  
+    console.log("erc_20_IMC_address:", result._address);          
+	
+	
+	// varidate the test scheme 1
+	
+    // IMC_allowance
+	// 0: tokenOwner/sender  1: spender
+    let erc_20_IMC_allowance_accounts_0_1 = await result.methods.allowance(accounts[0], accounts[1]).call();
+    console.log("erc_20_IMC_allowance_accounts_0_1:", erc_20_IMC_allowance_accounts_0_1);
+    let erc_20_IMC_allowance_accounts_0_1_send = await result.methods.allowance(accounts[0], accounts[1]).send({from:accounts[0]});
+    console.log("erc_20_IMC_allowance_accounts_0_1_send:", erc_20_IMC_allowance_accounts_0_1_send )
+    
+	// IMC_increaseApproval 
+    // 0:sender 1: spender
+    let erc_20_IMC_increaseApproval_accounts_0_1 = await result.methods.increaseApproval(accounts[1], 100).call();
+    console.log("erc_20_IMC_increaseApproval_accounts_0_1:", erc_20_IMC_increaseApproval_accounts_0_1);
+    let erc_20_IMC_increaseApproval_accounts_0_1_send = await result.methods.increaseApproval(accounts[1], 100).send({from:accounts[0]});
+    console.log("erc_20_IMC_increaseApproval_accounts_0_1_send:", erc_20_IMC_increaseApproval_accounts_0_1_send);
+	
+    // Check_allowance_1
+	// 0: tokenOwner/sender  1: spender
+    let erc_20_IMC_allowance_accounts_0_1_Check_1 = await result.methods.allowance(accounts[0], accounts[1]).call();
+    console.log("erc_20_IMC_allowance_accounts_0_1_Check_1:", erc_20_IMC_allowance_accounts_0_1_Check_1);
+    let erc_20_IMC_allowance_accounts_0_1_Check_1_send = await result.methods.allowance(accounts[0], accounts[1]).send({from:accounts[0]});
+    console.log("erc_20_IMC_allowance_accounts_0_1_Check_1_send:", erc_20_IMC_allowance_accounts_0_1_Check_1_send )
+
+	// IMC_decreaseApproval_1 
+    // 0:sender 1: spender
+    let erc_20_IMC_decreaseApproval_1_accounts_0_1 = await result.methods.decreaseApproval(accounts[1], 50).call();
+    console.log("erc_20_IMC_decreaseApproval_1_accounts_0_1:", erc_20_IMC_decreaseApproval_1_accounts_0_1);
+    let erc_20_IMC_decreaseApproval_1_accounts_0_1_send = await result.methods.decreaseApproval(accounts[1], 50).send({from:accounts[0]});
+    console.log("erc_20_IMC_decreaseApproval_1_accounts_0_1_send:", erc_20_IMC_decreaseApproval_1_accounts_0_1_send);
+	
+    // Check_allowance_2
+	// 0: tokenOwner/sender  1: spender
+    let erc_20_IMC_allowance_accounts_0_1_Check_2 = await result.methods.allowance(accounts[0], accounts[1]).call();
+    console.log("erc_20_IMC_allowance_accounts_0_1_Check_2:", erc_20_IMC_allowance_accounts_0_1_Check_2);
+    let erc_20_IMC_allowance_accounts_0_1_Check_2_send = await result.methods.allowance(accounts[0], accounts[1]).send({from:accounts[0]});
+    console.log("erc_20_IMC_allowance_accounts_0_1_Check_2_send:", erc_20_IMC_allowance_accounts_0_1_Check_2_send )
+
+	// IMC_approve_1
+    // 0:sender 1: spender
+    let erc_20_IMC_approve_1_accounts_0_1 = await result.methods.approve(accounts[1], 20).call();
+    console.log("erc_20_IMC_approve_1_accounts_0_1:", erc_20_IMC_approve_1_accounts_0_1);
+    let erc_20_IMC_approve_1_accounts_0_1_send = await result.methods.approve(accounts[1], 20).send({from:accounts[0]});
+    console.log("erc_20_IMC_approve_1_accounts_0_1_send:", erc_20_IMC_approve_1_accounts_0_1_send);
+	    
+    // Check_allowance_3
+	// 0: tokenOwner/sender  1: spender                  
+    let erc_20_IMC_allowance_accounts_0_1_Check_3 = await result.methods.allowance(accounts[0], accounts[1]).call();
+    console.log("erc_20_IMC_allowance_accounts_0_1_Check_3:", erc_20_IMC_allowance_accounts_0_1_Check_3);
+    let erc_20_IMC_allowance_accounts_0_1_Check_3_send = await result.methods.allowance(accounts[0], accounts[1]).send({from:accounts[0]});
+    console.log("erc_20_IMC_allowance_accounts_0_1_Check_3_send:", erc_20_IMC_allowance_accounts_0_1_Check_3_send )
+
+	// IMC_approve_2       
+    // 0:sender 1: spender
+    let erc_20_IMC_approve_2_accounts_0_1 = await result.methods.approve(accounts[1], 1000).call();
+    console.log("erc_20_IMC_approve_2_accounts_0_1:", erc_20_IMC_approve_2_accounts_0_1);
+    let erc_20_IMC_approve_2_accounts_0_1_send = await result.methods.approve(accounts[1], 1000).send({from:accounts[0]});
+    console.log("erc_20_IMC_approve_2_accounts_0_1_send:", erc_20_IMC_approve_2_accounts_0_1_send);
+	
+    // Check_allowance_4
+	// 0: tokenOwner/sender  1: spender
+    let erc_20_IMC_allowance_accounts_0_1_Check_4 = await result.methods.allowance(accounts[0], accounts[1]).call();
+    console.log("erc_20_IMC_allowance_accounts_0_1_Check_4:", erc_20_IMC_allowance_accounts_0_1_Check_4);
+    let erc_20_IMC_allowance_accounts_0_1_Check_4_send = await result.methods.allowance(accounts[0], accounts[1]).send({from:accounts[0]});
+    console.log("erc_20_IMC_allowance_accounts_0_1_Check_4_send:", erc_20_IMC_allowance_accounts_0_1_Check_4_send )
+
+	// IMC_decreaseApproval_2 
+    // 0:sender 1: spender
+    let erc_20_IMC_decreaseApproval_2_accounts_0_1 = await result.methods.decreaseApproval(accounts[1], 10).call();
+    console.log("erc_20_IMC_decreaseApproval_2_accounts_0_1:", erc_20_IMC_decreaseApproval_2_accounts_0_1);
+    let erc_20_IMC_decreaseApproval_2_accounts_0_1_send = await result.methods.decreaseApproval(accounts[1], 10).send({from:accounts[0]});
+    console.log("erc_20_IMC_decreaseApproval_2_accounts_0_1_send:", erc_20_IMC_decreaseApproval_2_accounts_0_1_send);
+	
+    // Check_allowance_5
+	// 0: tokenOwner/sender  1: spender
+    let erc_20_IMC_allowance_accounts_0_1_Check_5 = await result.methods.allowance(accounts[0], accounts[1]).call();
+    console.log("erc_20_IMC_allowance_accounts_0_1_Check_5:", erc_20_IMC_allowance_accounts_0_1_Check_5);
+    let erc_20_IMC_allowance_accounts_0_1_Check_5_send = await result.methods.allowance(accounts[0], accounts[1]).send({from:accounts[0]});
+    console.log("erc_20_IMC_allowance_accounts_0_1_Check_5_send:", erc_20_IMC_allowance_accounts_0_1_Check_5_send )
+	                  
+     
+	// IMC_get_transferLock
+    let erc_20_IMC_get_transferLock_1_accounts_0 = await result.methods.get_transferLock().call();
+    console.log("erc_20_IMC_get_transferLock_1_accounts_0:", erc_20_IMC_get_transferLock_1_accounts_0);
+	
+	// IMC_setTransferLock
+    let erc_20_IMC_setTransferLock_accounts_0_send = await result.methods.setTransferLock(false).send({from:accounts[0]});
+    console.log("erc_20_IMC_setTransferLock_accounts_0_send :", erc_20_IMC_setTransferLock_accounts_0_send);
+	
+	// IMC_get_transferLock
+    let erc_20_IMC_get_transferLock_2__accounts_0 = await result.methods.get_transferLock().call();
+    console.log("erc_20_IMC_get_transferLock_2__accounts_0:", erc_20_IMC_get_transferLock_2__accounts_0);
+	
+    // IMC_transferFrom_1       
+	//approve = 100, _sender = accounts[0]
+	// transferFrom_value_1:50, transferFrom_value_2:30, _from:Caller, _to:accounts[2] 
+	
+    let erc_20_IMC_balanceOf_1_accounts_2_Test_1 = await result.methods.balanceOf(accounts[2]).call();
+    console.log("erc_20_IMC_balanceOf_1_accounts_2_Test_1:", erc_20_IMC_balanceOf_1_accounts_2_Test_1); 
+
+    let erc_20_IMC_approve_accounts_0_Test_1_send = await result.methods.approve(accounts[0], 100).send({from:accounts[0]});
+    console.log("erc_20_IMC_approve_accounts_0_Test_1_send:", erc_20_IMC_approve_accounts_0_Test_1_send); 
+	
+    let erc_20_IMC_transferFrom_1_accounts_0_2_Test_1_send = await result.methods.transferFrom(accounts[0],accounts[2], 50).send({from:accounts[0]});
+    console.log("erc_20_IMC_transferFrom_1_accounts_0_2_Test_1_send:", erc_20_IMC_transferFrom_1_accounts_0_2_Test_1_send);
+	
+    let erc_20_IMC_balanceOf_2_accounts_2_Test_1 = await result.methods.balanceOf(accounts[2]).call();
+    console.log("erc_20_IMC_balanceOf_2_accounts_2_Test_1:", erc_20_IMC_balanceOf_2_accounts_2_Test_1); 
+	
+    let erc_20_IMC_transferFrom_2_accounts_0_2_Test_1_send = await result.methods.transferFrom(accounts[0],accounts[2], 30).send({from:accounts[0]});
+    console.log("erc_20_IMC_transferFrom_2_accounts_0_2_Test_1_send:", erc_20_IMC_transferFrom_2_accounts_0_2_Test_1_send);
+
+    let erc_20_IMC_balanceOf_3_accounts_2_Test_1 = await result.methods.balanceOf(accounts[2]).call();
+    console.log("erc_20_IMC_balanceOf_3_accounts_2_Test_1:", erc_20_IMC_balanceOf_3_accounts_2_Test_1);  
+
+                
+    // IMC_transferFrom_2
+	// approve:80, caller: accounts[2], _spender:accounts[0]
+	// transferFrom_value:50,  _from:accounts[2], _to:Caller
+	
+    let erc_20_IMC_balanceOf_1_accounts_2_Test_2 = await result.methods.balanceOf(accounts[2]).call();
+    console.log("erc_20_IMC_balanceOf_1_accounts_2_Test_2:", erc_20_IMC_balanceOf_1_accounts_2_Test_2);  
+	
+    let erc_20_IMC_approve_accounts_0_2_Test_2_send = await result.methods.approve(accounts[0], 80).send({from:accounts[2]});
+    console.log(" erc_20_IMC_approve_accounts_0_2_Test_2_send:", erc_20_IMC_approve_accounts_0_2_Test_2_send);  
+	
+    let erc_20_IMC_transferFrom_accounts_0_2_Test_2_send = await result.methods.transferFrom(accounts[2],accounts[0], 50).send({from:accounts[0]});
+    console.log("erc_20_IMC_transferFrom_accounts_0_2_Test_2_send:", erc_20_IMC_transferFrom_accounts_0_2_Test_2_send);
+ 
+    let erc_20_IMC_balanceOf_2_accounts_2_Test_2 = await result.methods.balanceOf(accounts[2]).call();
+    console.log("erc_20_IMC_balanceOf_2_accounts_2_Test_2:", erc_20_IMC_balanceOf_2_accounts_2_Test_2);  
+	
+
+    // IMC_transferFrom_3
+    // approve:50, accounts[0]:_spender 
+	//  transferFrom_value:50 , _from:caller, _to: caller
+
+    let erc_20_IMC_balanceOf_1_accounts_0_Test_3 = await result.methods.balanceOf(accounts[0]).call();
+    console.log("erc_20_IMC_balanceOf_1_accounts_0_Test_3:", erc_20_IMC_balanceOf_1_accounts_0_Test_3);
+             
+    let erc_20_IMC_approve_accounts_0_Test_3_send = await result.methods.approve(accounts[0], 50).send({from:accounts[0]});
+    console.log(" erc_20_IMC_approve_accounts_0_Test_3_send:", erc_20_IMC_approve_accounts_0_Test_3_send);  
+
+    let erc_20_IMC_transferFrom_accounts_0_Test_3_send = await result.methods.transferFrom(accounts[0],accounts[0], 50).send({from:accounts[0]});
+    console.log("erc_20_IMC_transferFrom_accounts_0_Test_3_send:", erc_20_IMC_transferFrom_accounts_0_Test_3_send);
+ 
+    let erc_20_IMC_balanceOf_2_accounts_0_Test_3 = await result.methods.balanceOf(accounts[0]).call();
+    console.log("erc_20_IMC_balanceOf_2_accounts_0_Test_3:", erc_20_IMC_balanceOf_2_accounts_0_Test_3); 
+	
+	     
+    // IMC_transferFrom_4 
+    // approve:30,  _spender:accounts[0],  caller: accounts[2]
+	// transferFrom_value:50, _from:accounts[2]  _to:accounts[3]
+                
+    let erc_20_IMC_balanceOf_1_accounts_2_Test_4 = await result.methods.balanceOf(accounts[2]).call();
+    console.log("erc_20_IMC_balanceOf_1_accounts_2_Test_4:", erc_20_IMC_balanceOf_1_accounts_2_Test_4); 
+    let erc_20_IMC_balanceOf_1_accounts_3_Test_4 = await result.methods.balanceOf(accounts[3]).call();
+    console.log("erc_20_IMC_balanceOf_1_accounts_3_Test_4:", erc_20_IMC_balanceOf_1_accounts_3_Test_4); 
+
+    let erc_20_IMC_approve_accounts_0_2_Test_4_send = await result.methods.approve(accounts[0], 30).send({from:accounts[2]});
+    console.log(" erc_20_IMC_approve_accounts_0_2_Test_4_send:", erc_20_IMC_approve_accounts_0_2_Test_4_send);  
+
+    let erc_20_IMC_transferFrom_accounts_0_2_3_Test_4_send = await result.methods.transferFrom(accounts[2],accounts[3], 20).send({from:accounts[0]});
+    console.log("erc_20_IMC_transferFrom_accounts_0_2_3_Test_4_send:", erc_20_IMC_transferFrom_accounts_0_2_3_Test_4_send);
+ 
+    let erc_20_IMC_balanceOf_2_accounts_2_Test_4 = await result.methods.balanceOf(accounts[2]).call();
+    console.log("erc_20_IMC_balanceOf_2_accounts_2_Test_4:", erc_20_IMC_balanceOf_2_accounts_2_Test_4); 
+    let erc_20_IMC_balanceOf_2_accounts_3_Test_4 = await result.methods.balanceOf(accounts[3]).call();
+    console.log("erc_20_IMC_balanceOf_2_accounts_3_Test_4:", erc_20_IMC_balanceOf_2_accounts_3_Test_4);  
+
+	
+    // IMC_transferFrom_5     
+    // approve:50,  _spender:accounts[0]
+	// transferFrom_value_1:50, transferFrom_value_2:30, _from:Caller, _to:accounts[4] 
+	
+	// IMC_get_transferLock
+    let erc_20_IMC_get_transferLock_1_accounts_0_Test_5 = await result.methods.get_transferLock().call();
+    console.log("erc_20_IMC_get_transferLock_1_accounts_0_Test_5:", erc_20_IMC_get_transferLock_1_accounts_0_Test_5);
+
+	// IMC_setTransferLock_transferFrom_5
+    let erc_20_IMC_setTransferLock_accounts_0_Test_5_send = await result.methods.setTransferLock(true).send({from:accounts[0]});
+    console.log("erc_20_IMC_setTransferLock_accounts_0_Test_5_send:",  erc_20_IMC_setTransferLock_accounts_0_Test_5_send);
+
+	// IMC_get_transferLock
+    let erc_20_IMC_get_transferLock_2_accounts_0_Test_5 = await result.methods.get_transferLock().call();
+    console.log("erc_20_IMC_get_transferLock_2_accounts_0_Test_5:", erc_20_IMC_get_transferLock_2_accounts_0_Test_5);
+
+	
+    let erc_20_IMC_balanceOf_1_accounts_4_Test_5 = await result.methods.balanceOf(accounts[4]).call();
+    console.log("erc_20_IMC_balanceOf_1_accounts_4_Test_5:", erc_20_IMC_balanceOf_1_accounts_4_Test_5); 
+
+    let erc_20_IMC_approve_accounts_0_Test_5_send = await result.methods.approve(accounts[0], 100).send({from:accounts[0]});
+    console.log(" erc_20_IMC_approve_accounts_0_Test_5_send:",  erc_20_IMC_approve_accounts_0_Test_5_send); 
+	
+    let erc_20_IMC_transferFrom_1_accounts_0_4_Test_5_send = await result.methods.transferFrom(accounts[0], accounts[4], 50).send({from:accounts[0]});
+    console.log("erc_20_IMC_transferFrom_1_accounts_0_4_Test_5_send:", erc_20_IMC_transferFrom_1_accounts_0_4_Test_5_send);
+	
+    let erc_20_IMC_balanceOf_2_accounts_4_Test_5 = await result.methods.balanceOf(accounts[4]).call();
+    console.log("erc_20_IMC_balanceOf_2_accounts_4_Test_5:", erc_20_IMC_balanceOf_2_accounts_4_Test_5); 
+	
+    let erc_20_IMC_transferFrom_2_accounts_0_4_Test_5_send = await result.methods.transferFrom(accounts[0],accounts[4], 30).send({from:accounts[0]});
+    console.log("erc_20_IMC_transferFrom_2_accounts_0_4_Test_5_send:", erc_20_IMC_transferFrom_2_accounts_0_4_Test_5_send);
+
+    let erc_20_IMC_balanceOf_3_accounts_4_Test_5 = await result.methods.balanceOf(accounts[4]).call();
+    console.log("erc_20_IMC_balanceOf_3_accounts_4_Test_5:", erc_20_IMC_balanceOf_3_accounts_4_Test_5);  
+
+
+    // IMC_transferFrom_6
+    // approve:50, accounts[0]:_spender 
+	//  transferFrom_value:50 , _from:caller, _to: caller
+
+    let erc_20_IMC_balanceOf_1_accounts_0_Test_6 = await result.methods.balanceOf(accounts[0]).call();
+    console.log("erc_20_IMC_balanceOf_1_accounts_0_Test_6:", erc_20_IMC_balanceOf_1_accounts_0_Test_6);
+             
+    let erc_20_IMC_approve_accounts_0_Test_6_send = await result.methods.approve(accounts[0], 50).send({from:accounts[0]});
+    console.log(" erc_20_IMC_approve_accounts_0_Test_6_send:", erc_20_IMC_approve_accounts_0_Test_6_send);  
+
+    let erc_20_IMC_transferFrom_accounts_0_Test_6_send = await result.methods.transferFrom(accounts[0],accounts[0], 50).send({from:accounts[0]});
+    console.log("erc_20_IMC_transferFrom_accounts_0_Test_6_send:", erc_20_IMC_transferFrom_accounts_0_Test_6_send);
+ 
+    let erc_20_IMC_balanceOf_2_accounts_0_Test_6 = await result.methods.balanceOf(accounts[0]).call();
+    console.log("erc_20_IMC_balanceOf_2_accounts_0_Test_6:", erc_20_IMC_balanceOf_2_accounts_0_Test_6); 
+
+
+    // IMC_transferFrom_7
+	// approve:10, caller: accounts[2], _spender:accounts[0]
+	// transferFrom_value:10,  _from:accounts[2], _to:Caller
+	
+    let erc_20_IMC_balanceOf_1_accounts_2_Test_7 = await result.methods.balanceOf(accounts[2]).call();
+    console.log("erc_20_IMC_balanceOf_1_accounts_2_Test_7:", erc_20_IMC_balanceOf_1_accounts_2_Test_7); 
+
+	// IMC_get_transferLock
+    let erc_20_IMC_get_transferLock_Test_7 = await result.methods.get_transferLock().call();
+    console.log("erc_20_IMC_get_transferLock_Test_7:", erc_20_IMC_get_transferLock_Test_7);
+	
+	// IMC_allowedAddress
+    let erc_20_IMC_allowedAddress_1_accounts_2_Test_7 = await result.methods.allowedAddress(accounts[2]).call();
+    console.log("erc_20_IMC_allowedAddress_1_accounts_2_Test_7:", erc_20_IMC_allowedAddress_1_accounts_2_Test_7);
+
+    // IMC_addAllowedAddress
+    let erc_20_IMC_addAllowedAddress_accounts_2_Test_7 = await result.methods.addAllowedAddress(accounts[2]).send({from:accounts[0]});
+    console.log(" erc_20_IMC_addAllowedAddress_accounts_2_Test_7:", erc_20_IMC_addAllowedAddress_accounts_2_Test_7);
+
+	// IMC_allowedAddress
+    let erc_20_IMC_allowedAddress_2_accounts_2_Test_7 = await result.methods.allowedAddress(accounts[2]).call();
+    console.log("erc_20_IMC_allowedAddress_2_accounts_2_Test_7:", erc_20_IMC_allowedAddress_2_accounts_2_Test_7);
+	
+    let erc_20_IMC_approve_accounts_0_2_Test_7_send = await result.methods.approve(accounts[0], 10).send({from:accounts[2]});
+    console.log(" erc_20_IMC_approve_accounts_0_2_Test_7_send:", erc_20_IMC_approve_accounts_0_2_Test_7_send);  
+	
+    let erc_20_IMC_transferFrom_accounts_0_2_Test_7_send = await result.methods.transferFrom(accounts[2],accounts[0], 10).send({from:accounts[0]});
+    console.log("erc_20_IMC_transferFrom_accounts_0_2_Test_7_send:", erc_20_IMC_transferFrom_accounts_0_2_Test_7_send );
+ 
+    let erc_20_IMC_balanceOf_2_accounts_2_Test_7 = await result.methods.balanceOf(accounts[2]).call();
+    console.log("erc_20_IMC_balanceOf_2_accounts_2_Test_7:", erc_20_IMC_balanceOf_2_accounts_2_Test_7);
+
+    // IMC_transferFrom_8 
+    // approve:0,  _spender:accounts[0],  caller: accounts[2]
+	// transferFrom_value:0, _from:accounts[2]  _to:accounts[3]
+                
+    let erc_20_IMC_balanceOf_1_accounts_2_Test_8 = await result.methods.balanceOf(accounts[2]).call();
+    console.log("erc_20_IMC_balanceOf_1_accounts_2_Test_8:", erc_20_IMC_balanceOf_1_accounts_2_Test_8); 
+    let erc_20_IMC_balanceOf_1_accounts_3_Test_8 = await result.methods.balanceOf(accounts[3]).call();
+    console.log("erc_20_IMC_balanceOf_1_accounts_3_Test_8:", erc_20_IMC_balanceOf_1_accounts_3_Test_8); 
+
+    let erc_20_IMC_approve_accounts_0_2_Test_8_send = await result.methods.approve(accounts[0], 0).send({from:accounts[2]});
+    console.log(" erc_20_IMC_approve_accounts_0_2_Test_8_send:", erc_20_IMC_approve_accounts_0_2_Test_8_send);  
+
+    let erc_20_IMC_transferFrom_accounts_0_2_3_Test_8_send = await result.methods.transferFrom(accounts[2],accounts[3], 0).send({from:accounts[0]});
+    console.log("erc_20_IMC_transferFrom_accounts_0_2_3_Test_8_send:", erc_20_IMC_transferFrom_accounts_0_2_3_Test_8_send);
+ 
+    let erc_20_IMC_balanceOf_2_accounts_2_Test_8 = await result.methods.balanceOf(accounts[2]).call();
+    console.log("erc_20_IMC_balanceOf_2_accounts_2_Test_8:", erc_20_IMC_balanceOf_2_accounts_2_Test_8); 
+    let erc_20_IMC_balanceOf_2_accounts_3_Test_8 = await result.methods.balanceOf(accounts[3]).call();
+    console.log("erc_20_IMC_balanceOf_2_accounts_3_Test_8 :", erc_20_IMC_balanceOf_2_accounts_3_Test_8 );  
+	
+	              
+    // IMC_transfer_1
+	// transfer_value:50, _to: caller
+
+	// IMC_get_transferLock
+    let erc_20_IMC_get_transferLock_1_accounts_0_transfer_Test_1 = await result.methods.get_transferLock().call();
+    console.log("erc_20_IMC_get_transferLock_1_accounts_0_transfer_Test_1:", erc_20_IMC_get_transferLock_1_accounts_0_transfer_Test_1);
+
+	// IMC_setTransferLock_transfer_1
+    let erc_20_IMC_setTransferLock_accounts_0_transfer_Test_1_send = await result.methods.setTransferLock(false).send({from:accounts[0]});
+    console.log("erc_20_IMC_setTransferLock_accounts_0_transfer_Test_1_send:",  erc_20_IMC_setTransferLock_accounts_0_transfer_Test_1_send);
+
+	// IMC_get_transferLock
+    let erc_20_IMC_get_transferLock_2_accounts_0_transfer_Test_1 = await result.methods.get_transferLock().call();
+    console.log("erc_20_IMC_get_transferLock_2_accounts_0_transfer_Test_1:", erc_20_IMC_get_transferLock_2_accounts_0_transfer_Test_1);
+                
+    let erc_20_IMC_balanceOf_1_accounts_0_transfer_Test_1 = await result.methods.balanceOf(accounts[0]).call();
+    console.log("erc_20_IMC_balanceOf_1_accounts_0_transfer_Test_1:", erc_20_IMC_balanceOf_1_accounts_0_transfer_Test_1); 
+
+    let erc_20_IMC_transfer_accounts_0_Test_1_send = await result.methods.transfer(accounts[0], 50).send({from:accounts[0]});
+    console.log("erc_20_IMC_transfer_accounts_0_Test_1_send:", erc_20_IMC_transfer_accounts_0_Test_1_send);
+ 
+    let erc_20_IMC_balanceOf_2_accounts_0_transfer_Test_1 = await result.methods.balanceOf(accounts[0]).call();
+    console.log("erc_20_IMC_balanceOf_2_accounts_0_transfer_Test_1:", erc_20_IMC_balanceOf_2_accounts_0_transfer_Test_1); 
+      
+
+    // IMC_transfer_2
+	// transfer_value:20, _to: accounts[1]
+
+	// IMC_get_transferLock
+    let erc_20_IMC_get_transferLock_1_accounts_0_transfer_Test_2 = await result.methods.get_transferLock().call();
+    console.log("erc_20_IMC_get_transferLock_1_accounts_0_transfer_Test_2:", erc_20_IMC_get_transferLock_1_accounts_0_transfer_Test_2);
+              
+    let erc_20_IMC_balanceOf_1_accounts_1_transfer_Test_2 = await result.methods.balanceOf(accounts[1]).call();
+    console.log("erc_20_IMC_balanceOf_1_accounts_1_transfer_Test_2:", erc_20_IMC_balanceOf_1_accounts_1_transfer_Test_2); 
+
+    let erc_20_IMC_transfer_accounts_1_Test_2_send = await result.methods.transfer(accounts[1], 20).send({from:accounts[0]});
+    console.log(" erc_20_IMC_transfer_accounts_1_Test_2_send:",  erc_20_IMC_transfer_accounts_1_Test_2_send);
+ 
+    let erc_20_IMC_balanceOf_2_accounts_1_transfer_Test_2 = await result.methods.balanceOf(accounts[1]).call();
+    console.log("erc_20_IMC_balanceOf_2_accounts_1_transfer_Test_2:", erc_20_IMC_balanceOf_2_accounts_1_transfer_Test_2); 
+
+	         
+    // IMC_transfer_3
+	// transfer_value:50, _to: caller   
+
+	// IMC_get_transferLock
+    let erc_20_IMC_get_transferLock_1_accounts_0_transfer_Test_3 = await result.methods.get_transferLock().call();
+    console.log("erc_20_IMC_get_transferLock_1_accounts_0_transfer_Test_3:", erc_20_IMC_get_transferLock_1_accounts_0_transfer_Test_3 );
+
+	// IMC_setTransferLock_transfer_1
+    let erc_20_IMC_setTransferLock_accounts_0_transfer_Test_3_send = await result.methods.setTransferLock(true).send({from:accounts[0]});
+    console.log("erc_20_IMC_setTransferLock_accounts_0_transfer_Test_3_send:",  erc_20_IMC_setTransferLock_accounts_0_transfer_Test_3_send);
+
+    // IMC_allowedAddress
+    let erc_20_IMC_allowedAddress_transfer_accounts_0_Test_3 = await result.methods.allowedAddress(accounts[0]).call();
+    console.log("erc_20_IMC_allowedAddress_transfer_accounts_0_Test_3:", erc_20_IMC_allowedAddress_transfer_accounts_0_Test_3);
+                
+    let erc_20_IMC_balanceOf_1_accounts_0_transfer_Test_3 = await result.methods.balanceOf(accounts[0]).call();
+    console.log("erc_20_IMC_balanceOf_1_accounts_0_transfer_Test_3:", erc_20_IMC_balanceOf_1_accounts_0_transfer_Test_3); 
+
+    let erc_20_IMC_transfer_accounts_0_Test_3_send = await result.methods.transfer(accounts[0], 50).send({from:accounts[0]});
+    console.log("erc_20_IMC_transfer_accounts_0_Test_3_send:", erc_20_IMC_transfer_accounts_0_Test_3_send);
+ 
+    let erc_20_IMC_balanceOf_2_accounts_0_transfer_Test_3 = await result.methods.balanceOf(accounts[0]).call();
+    console.log("erc_20_IMC_balanceOf_2_accounts_0_transfer_Test_3:", erc_20_IMC_balanceOf_2_accounts_0_transfer_Test_3); 
+      
+
+    // IMC_transfer_4
+	// transfer_value:20, _to: accounts[1]
+
+	// IMC_get_transferLock
+    let erc_20_IMC_get_transferLock_1_accounts_0_transfer_Test_4 = await result.methods.get_transferLock().call();
+    console.log("erc_20_IMC_get_transferLock_1_accounts_0_transfer_Test_4:", erc_20_IMC_get_transferLock_1_accounts_0_transfer_Test_4);
+	
+    // IMC_allowedAddress
+    let erc_20_IMC_allowedAddress_transfer_accounts_0_Test_4 = await result.methods.allowedAddress(accounts[0]).call();
+    console.log("erc_20_IMC_allowedAddress_transfer_accounts_0_Test_4:", erc_20_IMC_allowedAddress_transfer_accounts_0_Test_4);
+                                
+    let erc_20_IMC_balanceOf_1_accounts_1_transfer_Test_4 = await result.methods.balanceOf(accounts[1]).call();
+    console.log("erc_20_IMC_balanceOf_1_accounts_1_transfer_Test_4:", erc_20_IMC_balanceOf_1_accounts_1_transfer_Test_4); 
+
+    let erc_20_IMC_transfer_accounts_1_Test_4_send = await result.methods.transfer(accounts[1], 20).send({from:accounts[0]});
+    console.log(" erc_20_IMC_transfer_accounts_1_Test_4_send:",  erc_20_IMC_transfer_accounts_1_Test_4_send);
+ 
+    let erc_20_IMC_balanceOf_2_accounts_1_transfer_Test_4 = await result.methods.balanceOf(accounts[1]).call();
+    console.log("erc_20_IMC_balanceOf_2_accounts_1_transfer_Test_4:", erc_20_IMC_balanceOf_2_accounts_1_transfer_Test_4); 
+
+
+    // IMC_transfefFrom_transfer   
+	// deployer: accounts[0], users: accounts[1], accounts[2], accounts[3]
+	
+    // IMC_transfefFrom_transfer_backgound: totalSupply, allowance, balanceOf
+	let IMC_transfefFrom_transfer_background_totalSupply = await result.methods.totalSupply().call();
+    console.log("IMC_transfefFrom_transfer_background_totalSupply:", IMC_transfefFrom_transfer_background_totalSupply);
+	let IMC_transfefFrom_transfer_background_allowance_2_1 = await result.methods.allowance(accounts[2], accounts[1]).call();
+    console.log("IMC_transfefFrom_transfer_background_allowance_2_1:", IMC_transfefFrom_transfer_background_allowance_2_1);
+	let IMC_transfefFrom_transfer_background_balanceOF_0 = await result.methods.balanceOf(accounts[0]).call();
+    console.log("IMC_transfefFrom_transfer_background_balanceOF_0:", IMC_transfefFrom_transfer_background_balanceOF_0);
+	let IMC_transfefFrom_transfer_background_balanceOF_1 = await result.methods.balanceOf(accounts[1]).call();
+    console.log("IMC_transfefFrom_transfer_background_balanceOF_1:", IMC_transfefFrom_transfer_background_balanceOF_1 );
+	let IMC_transfefFrom_transfer_background_balanceOF_2 = await result.methods.balanceOf(accounts[2]).call();
+    console.log("IMC_transfefFrom_transfer_background_balanceOF_2:", IMC_transfefFrom_transfer_background_balanceOF_2 );
+	let IMC_transfefFrom_transfer_background_balanceOF_3 = await result.methods.balanceOf(accounts[3]).call();
+    console.log("IMC_transfefFrom_transfer_background_balanceOF_3:", IMC_transfefFrom_transfer_background_balanceOF_3 );
+
+	// IMC_transfefFrom_transfer_tokenBurn
+    let IMC_transfefFrom_transfer_tokenBurn = await result.methods.tokenBurn(300).send({from:accounts[0]});
+    console.log("IMC_transfefFrom_transfer_tokenBurn:", IMC_transfefFrom_transfer_tokenBurn);
+
+	// IMC_transfefFrom_transfer_accounts_0_1_transfer
+    let IMC_transfefFrom_transfer_accounts_0_1_transfer = await result.methods.transfer(accounts[1], 100).send({from:accounts[0]});
+    console.log(" IMC_transfefFrom_transfer_accounts_0_1_transfer:", IMC_transfefFrom_transfer_accounts_0_1_transfer);
+	
+	
+	// IMC_transfefFrom_transfer_get_transferLock
+    let IMC_transfefFrom_transfer_get_transferLock = await result.methods.get_transferLock().call();
+    console.log("IMC_transfefFrom_transfer_get_transferLock:", IMC_transfefFrom_transfer_get_transferLock );
+
+	// IMC_transfefFrom_transfer_setTransferLock
+    let IMC_transfefFrom_transfer_setTransferLock = await result.methods.setTransferLock(false).send({from:accounts[0]});
+    console.log("IMC_transfefFrom_transfer_setTransferLock:",  IMC_transfefFrom_transfer_setTransferLock);
+
+	// IMC_transfefFrom_transfer_accounts_1_2_transfer  
+    let IMC_transfefFrom_transfer_accounts_1_2_transfer = await result.methods.transfer(accounts[2], 50).send({from:accounts[1]});
+    console.log("IMC_transfefFrom_transfer_accounts_1_2_transfer:", IMC_transfefFrom_transfer_accounts_1_2_transfer);
+	
+       
+	// IMC_transfefFrom_transfer_accounts_2_1_approve      
+    let IMC_transfefFrom_transfer_accounts_2_1_approve = await result.methods.approve(accounts[1], 20).send({from:accounts[2]});
+    console.log("IMC_transfefFrom_transfer_accounts_2_1_approver:", IMC_transfefFrom_transfer_accounts_2_1_approve);
+    let IMC_transfefFrom_transfer_accounts_2_1_increaseApproval = await result.methods.increaseApproval(accounts[1], 30).send({from:accounts[2]});
+    console.log("IMC_transfefFrom_transfer_accounts_2_1_increaseApproval:", IMC_transfefFrom_transfer_accounts_2_1_increaseApproval);
+    let IMC_transfefFrom_transfer_accounts_2_1_decreaseApproval = await result.methods.decreaseApproval(accounts[1], 10).send({from:accounts[2]});
+    console.log("IMC_transfefFrom_transfer_accounts_2_1_decreaseApproval:", IMC_transfefFrom_transfer_accounts_2_1_decreaseApproval);
+
+	// IMC_transfefFrom_transfer_accounts_2_3_transferFrom
+    let IMC_transfefFrom_transfer_accounts_2_3_transferFrom = await result.methods.transferFrom(accounts[2], accounts[3], 30).send({from:accounts[1]});
+    console.log("IMC_transfefFrom_transfer_accounts_2_3_transferFrom:", IMC_transfefFrom_transfer_accounts_2_1_approve);
+
+         
+    // IMC_transfefFrom_transfer_done: totalSupply, allowance, balanceOf
+	let IMC_transfefFrom_transfer_done_totalSupply = await result.methods.totalSupply().call();
+    console.log("IMC_transfefFrom_transfer_done_totalSupply:", IMC_transfefFrom_transfer_done_totalSupply);
+	let IMC_transfefFrom_transfer_done_allowance_2_1 = await result.methods.allowance(accounts[2], accounts[1]).call();
+    console.log("IMC_transfefFrom_transfer_done_allowance_2_1:", IMC_transfefFrom_transfer_done_allowance_2_1);
+	let IMC_transfefFrom_transfer_done_balanceOF_0 = await result.methods.balanceOf(accounts[0]).call();
+    console.log("IMC_transfefFrom_transfer_done_balanceOF_0:", IMC_transfefFrom_transfer_done_balanceOF_0);
+	let IMC_transfefFrom_transfer_done_balanceOF_1 = await result.methods.balanceOf(accounts[1]).call();
+    console.log("IMC_transfefFrom_transfer_done_balanceOF_1:", IMC_transfefFrom_transfer_done_balanceOF_1 );
+	let IMC_transfefFrom_transfer_done_balanceOF_2 = await result.methods.balanceOf(accounts[2]).call();
+    console.log("IMC_transfefFrom_transfer_done_balanceOF_2:", IMC_transfefFrom_transfer_done_balanceOF_2 );
+	let IMC_transfefFrom_transfer_done_balanceOF_3 = await result.methods.balanceOf(accounts[3]).call();
+    console.log("IMC_transfefFrom_transfer_done_balanceOF_3:", IMC_transfefFrom_transfer_done_balanceOF_3 );
+                                        
+}                       
+                                         
+contract_deploy();                                                              
+                                                                                  
+                                                                                     
+                         
+                 
+                     
+     
+             
+                                    
+
+
+
+             

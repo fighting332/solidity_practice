@@ -1,0 +1,112 @@
+
+
+# install solcjs
+$ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash
+$ sudo reboot  
+$ sudo reboot          
+$ nvm install v16.13.1
+$ nvm alias default 16.13.1
+$ npm install -g solc   
+# install solc 
+$ sudo add-apt-repository ppa:ethereum/ethereum
+$ sudo apt-get update
+$ sudo apt-get install solc
+$ solcjs --version
+$ solc --verison
+
+$ npm install web3
+$ npm install ganache-cli     
+$ nvm --version
+$ npm --version
+$ node --version
+$ npm view web3 version
+$ npm view ganache-cli version
+
+$ sudo nano contract.sol
+# solcjs -o outputDirectory --abi --bin contract.sol
+$ solc -o outputDirectory --abi --bin contract.sol
+$ sudo nano contract.js
+$ node contract.js
+      
+
+    
+------------------------------------
+contract.sol
+--------------------
+
+// SPDX-License-Identifier: GPL-3.0
+pragma solidity >=0.4.16 <0.9.0;
+
+contract C {
+    function f(uint a) private pure returns (uint b) { return a + 1; }
+    function setData(uint a) internal { data = a; }
+    uint public data;
+}
+
+        
+
+------------------------------------
+contract.js
+--------------------  
+               
+// const fs, path
+const fs = require("fs");
+const path = require("path");     
+
+// obtain bin data
+const compilePath_bin = path.resolve(__dirname,"outputDirectory", "C.bin");
+const solidity_bin = fs.readFileSync(compilePath_bin,"utf-8");
+
+// obtain abi data
+const compilePath_abi = path.resolve(__dirname,"outputDirectory", "C.abi");
+const solidity_abi = fs.readFileSync(compilePath_abi,"utf-8");
+
+// storage bin and abi data
+storageJson = {
+  'abi': {},
+  'bytecode': ''
+};
+
+storageJson.abi = solidity_abi;
+storageJson.bytecode = solidity_bin;
+console.log(storageJson);
+
+const Web3 = require("web3");
+const ganache = require("ganache-cli");
+const web3 = new Web3(ganache.provider());         
+
+/*
+var aux_gas = 100
+async function desired_Gas(auxiliary_gas){
+    let estimateGas = await new web3.eth.Contract(JSON.parse(storageJson.abi))
+        .deploy({data:storageJson.bytecode})
+		.estimateGas();
+		
+    desired_gas = estimateGas + auxiliary_gas;
+    console.log("estimateGas (minimum gas):", estimateGas);
+	console.log("auxiliary_gas:", auxiliary_gas);
+    console.log("desired_gas:", desired_gas);
+}
+
+desired_Gas(aux_gas);
+*/
+                   
+// deploy contract
+async function contract_deploy() {
+    let accounts = await web3.eth.getAccounts();
+    let result = await new web3.eth.Contract(JSON.parse(storageJson.abi))
+        .deploy({data:storageJson.bytecode})
+        .send({from:accounts[0], gas: 92179})
+        .catch(err=>{console.error(err);});
+		
+    console.log("sender_accounts[0]_address:",accounts[0]);
+    console.log("contract_address:", result._address);
+}
+
+contract_deploy();
+                   
+                   
+    
+                                
+			  
+			  
